@@ -1,4 +1,4 @@
-**Tinylisp versions with reference count garbage collection**
+**Tinylisp versions with reference counting garbage collector
 
 - [tinylisp-gc.c](tinylisp-gc.c)
   - the smallest simplest tinylisp version with gc, based on tinylisp.c (+15 lines of C)
