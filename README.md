@@ -188,7 +188,7 @@ evaluates `y` with a local scope of bindings for symbols `v` subsequently bound 
 
 > Note that most Lisp use a syntax with binding pairs in a list and one or more body expressions:
 > 
->     (let* ((v1 x1) (v2 x2) ... (vk xk)) y1 ... yn)
+>     (let* ((v1 x1) (v2 x2) ... (vk xk)) y1 y2 ... yn)
 > 
 > In tinylisp we can do the same by binding all but the last body expression `y` to dummy `_` variables:
 > 
