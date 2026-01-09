@@ -36,19 +36,20 @@ See also [#20](https://github.com/Robert-van-Engelen/tinylisp/issues/20)
 Reference counting continuously releases unused memory (unused cell pairs) back
 into the pool to recycle for reuse.  By contrast, mark-sweep only collects
 unused memory to recycle for reuse when the interpreter runs out of memory.
-This may seems simple and fast.  However, integrating a full mark-sweep does
-not just affect memory management, it also requires a stack to keep track of
-all temporary lists that are being constructed when running Lisp code in the
-interpreter.  The mark-sweep garbage collector uses the stack to check which
-temporary lists must be kept.  This adds overhead to the interpreter to push
-and pop Lisp values on the stack, however small these are (just one cell).
+This may seem simple and fast, however, integrating a full mark-sweep impacts
+memory management because it also requires an auxiliary stack to keep track of
+all temporary lists that are being constructed by the interpreter that cannot
+be released yet.  This adds overhead to the interpreter to push and pop Lisp
+values on this auxiliary stack.
 
-The tinylisp mark-sweep implementation is partial as it only runs on the global
-environment to keep it when we return to the REPL.  So we don't need a stack in
-this case.
+The tinylisp reference count garbage collector does all the heavy lifting more
+efficiently, while its simple mark-sweep collector only runs when the tinylisp
+interpreter returns to the REPL.  In this case, mark-sweep only keeps list
+cells that make up the stored Lisp program.  Therefore, we don't need an
+auxiliary stack.
 
 A quick investigation (not scientific) shows the performance difference on a
-Mac M1 machine compiled with clang 14.0.0 option -O2 to solve the
+Mac M1 compiled with clang 14.0.0 option -O2 to solve the
 [nqueens.lisp](nqueens.lisp) problem for N=8:
 
 | implementation | GC | mem size (cells) | time (ms) |
