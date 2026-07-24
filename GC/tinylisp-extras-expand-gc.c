@@ -1242,15 +1242,15 @@ L expand(L x,L e,L b) {
     *p = cons(v,nil);                                   /* to return expanded (<define> v ...) */
     if (T(v) == ATOM) {                                 /* if v is an atom then ... */
      x = car(cdr(x));                                   /* body x of (<define> v x) */
-     f = closure(nil,nil,nil);                          /* v may reference itself as a function f */
+     f = closure(nil,nil,nil);                          /* v may reference itself, assume it's a function */
      d = pair(v,f,dup(e));                              /* update environment d of e to include (v . f) */
      rc(&y,expand(x,d,b));                              /* y is expanded body x of (<define> v x) */
      if (ref[ord(f)/2] > 1) {                           /* if v references itself in y then ... */
-      if (T(y) == CONS && equ(CAR(y),p_lambda)) {       /* if body y is a (lambda ...v...) then ... */
-       z = eval(y,env);                                 /* construct closure z of y = (lambda ...) */
+      if (T(y) == CONS && equ(CAR(y),p_lambda)) {       /* if body y is a (lambda w z) then ... */
+       w = dup(car(CDR(y)));
+       z = dup(car(cdr(CDR(y))));
        gc(CAR(f));
-       CAR(f) = dup(CAR(z)); CDR(f) = dup(CDR(z));      /* overwrite the pre-constructed closure f with z */
-       gc(z);
+       CAR(f) = cons(w,z);                              /* update the pre-constructed f = closure(w,z,nil) */
        CDR(*p) = cons(f,nil);                           /* to return expanded (<define> v z) with closure z */
        gc(y);
       }
