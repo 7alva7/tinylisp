@@ -112,12 +112,8 @@ L err(I i,L x) {
  while (xp != xb) gc(**--xp);
  longjmp(jb,i);
 }
-/* register x with initial value y to collect with rg(x) or in a f_catch exception handler when an error occurred */
-L rc(L *x,L y) { *x = y; if (xp) *xp = x,++xp; return y; }      /* GCC incorrectly warns about *xp++ = x dangling pointer */
-/* remove x from catch-throw registry and garbage collect x */
-L rg(L x) { if (xp) --xp; return gc(x); }
-/* remove k registrations without garbage collecting them */
-void rr(I k) { if (xp) xp -= k; }
+/* SIGINT CTRL-C break running programs */
+void stop(int i) { if (line) err(6,nil); else abort(); }
 
 /* memory management with ref[] array using free and SCC marker bits */
 const I FREE = ~((I)~0UL>>1),MARK = FREE,SCC = MARK>>1;
@@ -125,6 +121,12 @@ const I FREE = ~((I)~0UL>>1),MARK = FREE,SCC = MARK>>1;
 I lomem(I i) { return lp = i < lp ? i : lp; }
 /* allocate a new pair */
 L alloc() { I i = fp; fp = ref[i/2]&~FREE; ref[i/2] = 1; --fn; return hp > lomem(i)<<3 ? err(4,nil) : box(CONS,i); }
+/* register x with initial value y to collect with rg(x) or in a f_catch exception handler when an error occurred */
+L rc(L *x,L y) { *x = y; if (xp) *xp = x,++xp; return y; }      /* GCC incorrectly warns about *xp++ = x dangling pointer */
+/* remove x from catch-throw registry and garbage collect x */
+L rg(L x) { if (xp) --xp; return gc(x); }
+/* remove k registrations without garbage collecting them */
+void rr(I k) { if (xp) xp -= k; }
 
 /* unsafe fast car and cdr, must be guarded to use: if (T(x) == CONS) { ... CAR(x) ... CDR(x) ... } */
 #define CAR(p) cell[ord(p)+1]
@@ -744,9 +746,6 @@ I atomize(L x,char *a) {
  if (x == x) snprintf(buf,sizeof(buf),"%.10lg",x); else strcpy(buf," ");
  return strlen(a ? strcpy(a,buf) : buf);
 }
-
-/* section 14: error handling and exceptions */
-void stop(int i) { if (line) err(6,nil); else abort(); }
 
 /* section 10: read-eval-print loop (REPL) with additions */
 int main(int argc,char **argv) {

@@ -91,6 +91,8 @@ L err(I i,L x) {
  if (!xh || tr) { printf("\n\e[31;1mERR %u: ",i); print(x); printf(" %s\e[m\n",i >= 1 && i <= 7 ? msg[i-1] : ""); }
  longjmp(jb,i);
 }
+/* SIGINT CTRL-C break running programs */
+void stop(int i) { if (line) err(6,nil); else abort(); }
 
 /* construct pair (x . y) returns a NaN-boxed CONS */
 L cons(L x,L y) { cell[--sp] = x; cell[--sp] = y; if (hp+16 > sp<<3) err(4,nil); return box(CONS,sp); }
@@ -635,9 +637,6 @@ void gc() {
  for (hp = 0; i < N; ++i) if (T(cell[i]) == ATOM && ord(cell[i]) > hp) hp = ord(cell[i]);
  hp += strlen(A+hp)+1;
 }
-
-/* section 14: error handling and exceptions */
-void stop(int i) { if (line) err(6,nil); else abort(); }
 
 /* section 10: read-eval-print loop (REPL) with additions */
 int main(int argc,char **argv) {
