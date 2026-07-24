@@ -61,7 +61,7 @@ char buf[256],see = 0,*ptr = "",*line = NULL,ps[80];
 #define PS2 "\001\e[32;1m\002? \001\e[m\002"
 
 /* forward proto declarations */
-L eval(L,L),expand(L,L,L),Read(),parse(),err(I,L); void collect(L),ms(L),print(FILE*,L); I atomize(L,char*);
+L eval(L,L),expand(L,L,L),Read(),parse(),err(I,L); void collect(L),ms(L),print(FILE*,L),stop(int); I atomize(L,char*);
 
 /* section 4: constructing Lisp expressions (using a cell pool managed with reference count garbage collection) */
 /* hp: top of the atom heap pointer, A+hp with hp=0 points to the first atom string in cell[]
@@ -198,6 +198,7 @@ void ms(L x) {
 #elif TEST
  I k = fn;
 #endif
+ signal(SIGINT,SIG_IGN);                                /* disable SIGINT CTRL-C: don't interrupt mark-sweep */
  for (i = 0; i < N/2; ++i) ref[i] &= ~FREE;             /* remove FREE/MARK markers from all cell refs */
  mk(x);                                                 /* mark root x */
  if (T(env) == CONS) mk(env);                           /* mark root env, recursively marks env cells as used */
@@ -207,7 +208,8 @@ void ms(L x) {
   if (ref[i/2]&MARK) lomem(i); else del(i);
  for (i = 0; i < N/2; ++i) ref[i] &= ~MARK;             /* clean up FREE/MARK markers from all cell refs */
  for (i = fp; i; i = (ref[i/2]&~FREE)) ref[i/2] |= FREE;/* set all free list cell refs to FREE */
-#if DEBUG                                                /* report on memory management when testing is enabled */
+ signal(SIGINT,stop);                                   /* re-enable SIGINT CTRL-C */
+#if DEBUG                                               /* report on memory management when debugging is enabled */
  for (i = 0; i < N/2; ++i) {
   if (!(ref[i]&FREE) && (r[i]&FREE))
    LOG(cell[2*i+1],"\n\e[31;1muse after free ref[%u] = %u\e[m\t",i,ref[i]),LOG(cell[2*i],"\t");
@@ -241,6 +243,8 @@ L err(I i,L x) {
  rg(sp-xp);
  longjmp(jb,i);
 }
+/* SIGINT CTRL-C break running programs */
+void stop(int i) { if (line) err(6,nil); else abort(); }
 
 /* unsafe fast car and cdr, must be guarded to use: if (T(x) == CONS) { ... CAR(x) ... CDR(x) ... } */
 #define CAR(p) cell[ord(p)+1]
@@ -937,10 +941,9 @@ void trace(L y,L x,L e) {
 
 /* section 16.2/3/4: tail-call optimization (section 17.2: hygienic macros - remove MACR branch) */
 L eval(L x,L e) {
- I a; L f,v,d,y,g;
- /* pre-check for stack overflow, expect 4 + 1 (for evlis) rc() calls */
+ I a; L f,v,d,y,g,z;
+ /* pre-check for stack overflow, expect 4 + 1 (for evlis) rc() calls to register variables */
  if (sp >= stk+S-5) return err(4,nil);
- /* if f_catch-ing then register 4 variables to track and garbage collect when an error is caught by f_catch */
  rc(&d,nil); rc(&e,dup(e)); rc(&f,nil); rc(&g,nil);
  /* we dup(e) the environment to extend with locals and formal arguments, then gc(e) all of them afterwards */
  while (1) {
@@ -954,8 +957,8 @@ L eval(L x,L e) {
   if (T(f) == PRIM) {
    /* apply Lisp primitive to argument list x, return value in x */
    x = prim[ord(f)].f(x,&e);
-   /* garbage collect g = old f */
-   gc(g); g = nil;
+   /* garbage collect g = old f (use temp z for gc() receive SIGINT interrupted) */
+   z = g; g = nil; gc(z);
    /* if tail-call then continue evaluating x, otherwise return x */
    if (prim[ord(f)].t) continue;
    break;
@@ -969,15 +972,15 @@ L eval(L x,L e) {
   if (T(v) == ATOM) d = pair(v,a ? dup(x) : evlis(x,e),d);
   /* next, evaluate body x of closure f in environment e = d while keeping f in memory as long as x */
   x = cdr(CAR(f));
-  /* discard copy of the old environment e to use new environment d */
-  gc(e); e = d; d = nil;
-  /* garbage collect closure g = old f with old body x */
-  gc(g); g = nil;
+  /* discard copy of the old environment e to use new environment d (use temp z for gc() may receive SIGINT) */
+  z = e; e = d; d = nil; gc(z);
+  /* garbage collect closure g = old f with old body x (use temp z for gc() may receive SIGINT) */
+  z = g; g = nil; gc(z);
   if (tr) trace(y,x,e);
  }
  if (tr && !equ(x,y)) trace(y,x,e);
- /* garbage collect environment e, closure f */
- gc(e); gc(f);
+ /* garbage collect environment e, closure f (use temp z for gc() may receive SIGINT) */
+ z = e; e = nil; gc(z); z = f; f = nil; gc(z);
  /* deregister 4 variables, if registered, without gc'ing them */
  rr(4);
  return x;
@@ -1252,12 +1255,11 @@ L expand(L x,L e,L b) {
        gc(CAR(f));
        CAR(f) = cons(w,z);                              /* update the pre-constructed f = closure(w,z,nil) */
        CDR(*p) = cons(f,nil);                           /* to return expanded (<define> v z) with closure z */
-       gc(y);
       }
       else return err(2,v);                             /* v references itself in non-function body value y, reject */
      }
-     else CDR(*p) = cons(y,nil);                        /* to return expanded (<define> v y) */
-     rr(1);
+     else CDR(*p) = cons(dup(y),nil);                   /* to return expanded (<define> v y) */
+     rg(1);
     }
     else CDR(*p) = cons(expand(car(cdr(x)),e,b),nil);   /* to return expanded (<define> v y) */
     rr(1); rg(2);
@@ -1314,9 +1316,6 @@ I atomize(L x,char *a) {
  if (x == x) snprintf(buf,sizeof(buf),"%.10lg",x); else strcpy(buf," ");
  return strlen(a ? strcpy(a,buf) : buf);
 }
-
-/* section 14: error handling and exceptions */
-void stop(int i) { if (line) err(6,nil); else abort(); }
 
 /* section 10: read-eval-print loop (REPL) with additions */
 int main(int argc,char **argv) {
