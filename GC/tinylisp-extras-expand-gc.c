@@ -81,7 +81,7 @@ L cell[N];
 /* Lisp constant expressions () (nil), #t, the global environment env, primitives <quote>, <list>, <append> */
 L nil,tru,env;
 /* section 17.1: early binding and efficient macro expansion */
-L p_quote,p_lambda,p_macro,p_cond,p_leta,p_let,p_letreca,p_letrec;
+L p_quote,p_lambda,p_macro,p_cond,p_leta,p_let,p_letreca,p_letrec,p_define;
 /* NaN-boxing specific functions:
    T(x):     returns the tag bits of a NaN-boxed double x
    box(t,i): returns a new NaN-boxed double with tag t and ordinal i
@@ -192,9 +192,11 @@ void mk(L x) {
 /* ref-count compatible mark-sweep garbage collector, releases unreachable cell pairs (cyclic data structures) */
 void ms(L x) {
  I i; L **p;
-#if TEST
+#if DEBUG
  I k = fn,r[N/2];
  memcpy(r,ref,sizeof(ref));
+#elif TEST
+ I k = fn;
 #endif
  for (i = 0; i < N/2; ++i) ref[i] &= ~FREE;             /* remove FREE/MARK markers from all cell refs */
  mk(x);                                                 /* mark root x */
@@ -205,16 +207,16 @@ void ms(L x) {
   if (ref[i/2]&MARK) lomem(i); else del(i);
  for (i = 0; i < N/2; ++i) ref[i] &= ~MARK;             /* clean up FREE/MARK markers from all cell refs */
  for (i = fp; i; i = (ref[i/2]&~FREE)) ref[i/2] |= FREE;/* set all free list cell refs to FREE */
-#if TEST                                                /* report on memory management when testing is enabled */
+#if DEBUG                                                /* report on memory management when testing is enabled */
  for (i = 0; i < N/2; ++i) {
   if (!(ref[i]&FREE) && (r[i]&FREE))
-   LOG(cell[i+1],"\n\e[31;1muse after free ref[%u] = %u\e[m\t",i,ref[i]),LOG(cell[2*i],"\t");
+   LOG(cell[2*i+1],"\n\e[31;1muse after free ref[%u] = %u\e[m\t",i,ref[i]),LOG(cell[2*i],"\t");
   else if ((ref[i]&FREE) && !(r[i]&FREE))
-   LOG(cell[i+1],"\n\e[31;1mnot freed pair ref[%u] = %u\e[m\t",i,r[i]),LOG(cell[2*i],"\t");
-  else if (!(ref[i]&FREE) && !(r[i]&FREE) && ref[i] != r[i])
-   LOG(cell[i+1],"\n\e[31;1mref[%u] want %u have %u\e[m\t",i,ref[i],r[i]),LOG(cell[2*i],"\t");
+   LOG(cell[2*i+1],"\n\e[31;1mnot freed pair ref[%u] = %u\e[m\t",i,r[i]),LOG(cell[2*i],"\t");
  }
- if (k < fn) printf("\nms() collected %u unused cells",2*(fn-k));
+#endif
+#if TEST
+ if (k < fn) printf("\n\e[31;1mms() collected %u unused cells\e[m\t",2*(fn-k));
 #endif
  if (hp > (lp-2)<<3) err(4,nil);
 }
@@ -282,21 +284,21 @@ void sweep() {
 /* rebuild memory to retain the global environment env and delete everything else */
 void rebuild() {
  I k = fn;
-#if TEST
+#if DEBUG
  I i,r[N/2];
  memcpy(r,ref,sizeof(ref));
 #endif
  memset(ref,0,sizeof(ref));
  count(env);
  sweep();
-#if TEST                                               /* report on memory management when debugging is enabled */
+#if DEBUG                                               /* report on memory management when debugging is enabled */
  for (i = 0; i < N/2; ++i) {
   if (!(ref[i]&FREE) && (r[i]&FREE))
-   LOG(cell[i+1],"\n\e[31;1muse after free ref[%u] = %u\e[m\t",i,ref[i]),LOG(cell[2*i],"\t");
+   LOG(cell[2*i+1],"\n\e[31;1muse after free ref[%u] = %u\e[m\t",i,ref[i]),LOG(cell[2*i],"\t");
   else if ((ref[i]&FREE) && !(r[i]&FREE))
-   LOG(cell[i+1],"\n\e[31;1mnot freed pair ref[%u] = %u\e[m\t",i,r[i]),LOG(cell[2*i],"\t");
+   LOG(cell[2*i+1],"\n\e[31;1mnot freed pair ref[%u] = %u\e[m\t",i,r[i]),LOG(cell[2*i],"\t");
   else if (!(ref[i]&FREE) && !(r[i]&FREE) && ref[i] != r[i])
-   LOG(cell[i+1],"\n\e[31;1mref[%u] want %u have %u\e[m\t",i,ref[i],r[i]),LOG(cell[2*i],"\t");
+   LOG(cell[2*i+1],"\n\e[31;1mref[%u] want %u have %u\e[m\t",i,ref[i],r[i]),LOG(cell[2*i],"\t");
  }
 #endif
  if (k < fn) printf("\ncollected %u unused cells",2*(fn-k));
@@ -1234,6 +1236,33 @@ L expand(L x,L e,L b) {
     rr(1); rg(2);
     return t;
    }
+   if (equ(f,p_define)) {
+    /* ++ new: <define> early bind self-recursive calls in functions to its closure of the function */
+    v = expand(car(x),e,b);                             /* expand variable v of (<define> v x) */
+    *p = cons(v,nil);                                   /* to return expanded (<define> v ...) */
+    if (T(v) == ATOM) {                                 /* if v is an atom then ... */
+     x = car(cdr(x));                                   /* body x of (<define> v x) */
+     f = closure(nil,nil,nil);                          /* v may reference itself as a function f */
+     d = pair(v,f,dup(e));                              /* update environment d of e to include (v . f) */
+     rc(&y,expand(x,d,b));                              /* y is expanded body x of (<define> v x) */
+     if (ref[ord(f)/2] > 1) {                           /* if v references itself in y then ... */
+      if (T(y) == CONS && equ(CAR(y),p_lambda)) {       /* if body y is a (lambda ...v...) then ... */
+       z = eval(y,env);                                 /* construct closure z of y = (lambda ...) */
+       gc(CAR(f));
+       CAR(f) = dup(CAR(z)); CDR(f) = dup(CDR(z));      /* overwrite the pre-constructed closure f with z */
+       gc(z);
+       CDR(*p) = cons(f,nil);                           /* to return expanded (<define> v z) with closure z */
+       gc(y);
+      }
+      else return err(2,v);                             /* v references itself in non-function body value y, reject */
+     }
+     else CDR(*p) = cons(y,nil);                        /* to return expanded (<define> v y) */
+     rr(1);
+    }
+    else CDR(*p) = cons(expand(car(cdr(x)),e,b),nil);   /* to return expanded (<define> v y) */
+    rr(1); rg(2);
+    return t;
+   }
   }
   /* expand argument expressions x in (f . x) and return a new application t = (f ...) by populating *p */
   for (; T(x) == CONS; x = CDR(x)) p = &CDR(*p = cons(expand(CAR(x),e,b),nil));
@@ -1304,6 +1333,7 @@ int main(int argc,char **argv) {
  p_let     = assoc(atom("let"),env);
  p_letreca = assoc(atom("letrec*"),env);
  p_letrec  = assoc(atom("letrec"),env);
+ p_define  = assoc(atom("define"),env);
  /* read input file */
  in[ld++] = fopen((argc > 1 ? argv[1] : "common.lisp"),"r");
  using_history();

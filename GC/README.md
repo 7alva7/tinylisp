@@ -65,7 +65,7 @@ Mac M1 compiled with clang 21.0.0 option -O2 to solve the
 | implementation | GC | mem size (cells) | time (ms) |
 | -------------- | -- | ---------------: | --------: |
 | tinylisp-extras-gc                                        | ref count              |  8192 |  396 ms |
-| tinylisp-extras-expand-gc                                 | ref count + mark-sweep |  8192 |   51 ms |
+| tinylisp-extras-expand-gc                                 | ref count + mark-sweep |  8192 |   50 ms |
 | [lisp](https://github.com/Robert-van-Engelen/lisp)        | mark-sweep             |  8192 |  920 ms |
 | [lisp](https://github.com/Robert-van-Engelen/lisp)        | mark-sweep             | 16384 |  895 ms |
 | [lisp-cheney](https://github.com/Robert-van-Engelen/lisp) | cheney                 |  8192 | 1880 ms |
@@ -307,7 +307,7 @@ cyclic data structures with `set-cdr!` while recursively calling itself:
                 (set-cdr! (cdr (cdr t)) t))
             (loopy))))
 ```
-Calling this function `(loopy)` does not run out of memory in
+Calling this function with `(loopy)` does not run out of memory in
 tinylisp-extras-expand-gc.  In fact, efficient tail-call recursion combined with
 reference counting and mark-sweep garbage collection makes this call never
 terminate.
